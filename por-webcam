@@ -1,0 +1,128 @@
+import numpy as np
+import cv2
+## função que descreve o centr
+def center(x, y, w, h):
+    x1 = int(w / 2)
+    y1 = int(h / 2)
+    cx = x + x1
+    cy = y + y1
+    return cx,cy
+## abre a  camera 
+cap = cv2.VideoCapture(0)
+
+fgbg = cv2.createBackgroundSubtractorMOG2()
+##lista vazia que será responsavel pelas posiçoes dos objetos encontrados##
+detects = []
+
+posL = 350
+offset = 150
+##pontos da linha do meio do frame
+xy1 = (posL, 10)
+xy2 = (posL, 500)
+
+
+total = 0
+        #entrada de pessoas
+up = 0
+        #saida de pessoas
+down = 0
+        #loop para ler o video da camera 
+while 1:
+        #frame = entrada 
+    ret, frame = cap.read()
+        #passa o video para a escala de cinza 
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    #cv2.imshow("gray", gray)
+        #mascara - diferença entre os frames(n) - frames(n-1)#
+    fgmask = fgbg.apply(gray)
+    #cv2.imshow("fgmask", fgmask)
+        #255 o mais claro - 200 retira as sombras(cinzas) da imagem  - thresh binary converte pra preto e branco #
+    retval, th = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
+    cv2.imshow("th", th)
+    # cria o objeto para ser usado nas operações morfologicas
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+    # retira o ruido da imagem 
+    opening = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel, iterations =1 )
+    #cv2.imshow("opening", opening)
+    ##aumenta os objetos encontrados (deixando os objetos mais largos )##
+    dilation = cv2.dilate(opening,kernel,iterations = 10)
+    #cv2.imshow("dilation", dilation)
+    #vai ser responsavel por fechar os buracos entre os obejtos proximos
+    closing = cv2.morphologyEx(dilation, cv2.MORPH_CLOSE, kernel, iterations = 10)
+    #cv2.imshow("closing", closing)
+    #linhas responsaveis para saber a direção dos objetos em analise
+    cv2.line(frame,xy1,xy2,(255,0,0),3)    
+    cv2.line(frame,(posL-offset,xy1[1]),(posL-offset,xy2[1]),(255,255,0),2)
+    cv2.line(frame,(posL+offset,xy1[1]),(posL+offset,xy2[1]),(255,255,0),2)
+    # encontra o encontro do objeto
+    contours, hierarchy = cv2.findContours(closing,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    i = 0
+    for cnt in contours:
+        (x,y,w,h) = cv2.boundingRect(cnt)
+
+        area = cv2.contourArea(cnt)
+            ##area do objeto encontrado 
+        if int(area) > 15000 :
+            ##usa a função centro encontrar o centro do objeto encontrado
+            centro = center(x, y, w, h)
+            ##Texto que indica a quantidade de pessoas no frame 
+            cv2.putText(frame, str(i), (x+5, y+15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255),2)
+            ##circulo vermelho que indica o centro do objeto
+            cv2.circle(frame, centro, 4, (0, 0,255), -1)
+            ##retangulo em volta do objeto encontrado
+            cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
+            ## caso a posição do idem encontrado não exista 
+            if len(detects) <= i:
+                detects.append([])
+            ##caso o a variavel na abscissas referente ao centro seja maior que a linha a esquerda e menor que a linha a direita do frame
+            if centro[0]> posL-offset and centro[0] < posL+offset:
+                ##centro detectado 
+                detects[i].append(centro)
+            else:
+                ##se não sem detecções 
+                detects[i].clear()
+            i += 1
+
+    if i == 0:
+        ##sem imagem detectada 
+        detects.clear()
+
+    i = 0
+        ##sem contorno
+    if len(contours) == 0:
+        detects.clear()
+
+    else:
+
+        for detect in detects:
+            for (c,l) in enumerate(detect):
+
+         ##define se o objeto do frame anterior esta antes ou depois da linha central 
+                if detect[c-1][0] < posL and l[0] > posL :
+                    detect.clear()
+                    up+=1
+                    total+=1 ##pessoa entrando 
+                    cv2.line(frame,xy1,xy2,(0,255,0),5)
+                    continue
+
+                if detect[c-1][0] > posL and l[0] < posL:
+                    detect.clear()
+                    down+=1
+                    total-=1 ## pessoa saindo 
+                    cv2.line(frame,xy1,xy2,(0,0,255),5)
+                    continue
+
+                if c > 0:
+                    cv2.line(frame,detect[c-1],l,(0,0,255),1)
+    ##textos responsaveis por indicar a quantidade de pessoas 
+    cv2.putText(frame, "TOTAL DE PESSOAS NO AMBIENTE: "+str(total), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255),2)
+    cv2.putText(frame, "ENTRANDO: "+str(up), (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0),2)
+    cv2.putText(frame, "SAINDO: "+str(down), (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255),2)
+    ##mostra a camera com todos os itens anteriores que foram adicionados##
+    cv2.imshow("frame", frame)
+
+    if cv2.waitKey(30) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
